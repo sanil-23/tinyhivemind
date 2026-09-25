@@ -654,10 +654,26 @@ fn empty_provider_response_retries_only_that_seat_and_commits_once() {
         assert_eq!(result["turns"], 4, "provider failure is not committed");
 
         let state = state.lock().expect("script state");
+        // Two, not three: the seat's own call and one fresh hive retry.
+        //
+        // This read three until the pin bump, the third being an attempt
+        // OpenHuman made itself -- it re-asked the provider once before
+        // surfacing an empty response. It no longer does. `EmptyProviderResponse`
+        // survives only as a *classification* now (`skips_sentry`, the web
+        // error predicates, the observability funnel); nothing in the turn
+        // loop raises it to be retried, so a degenerate response is terminal
+        // user state on the first call rather than a transient worth one more.
+        //
+        // The retry this test is named for is the hive's, and it is unchanged:
+        // one, for that seat alone, with the other three seats rerunning once
+        // each and the episode still failing closed on four turns. Verified
+        // against the dialect too -- under `"python"` this fixture diverges
+        // earlier, at the turn count above, so the count below moved with the
+        // bump and not with the dispatcher pin.
         assert_eq!(
             state.turn_starts.get("lead"),
-            Some(&3),
-            "one OpenHuman empty-response fallback and one fresh hive retry"
+            Some(&2),
+            "the seat's own call and one fresh hive retry"
         );
         for seat in ["implementer", "tester", "reviewer"] {
             assert_eq!(state.turn_starts.get(seat), Some(&1), "@{seat} reran");
