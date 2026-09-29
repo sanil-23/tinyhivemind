@@ -53,6 +53,12 @@ use crate::runner::{Lane, SeatRunner, TURN_TIMEOUT, TurnJob, TurnResult, unseate
 use crate::{Error, Result};
 use tinyhivemind::{Conversation, Sequence};
 
+/// The verbs a call is recorded by: a row on the desk or in a conversation
+/// exists because one of these was called, and nothing else mints one. `post`
+/// is absent deliberately -- it records inside a conversation but is not served
+/// on the desk, and the guard wants the verbs a seat can *finish* with.
+const RECORDS: [&str; 3] = ["complete_episode", "broadcast", "ask"];
+
 /// An `openhuman-embed` agent as the handle the driver binds.
 ///
 /// A newtype because the trait and the agent are both foreign to this crate;
@@ -251,6 +257,20 @@ impl SeatRunner for EmbedRunner {
         let journal = Arc::clone(&self.journal);
         let persona = self.personas.get(&seat).cloned();
         let window = self.window;
+        // The verbs a room records a row by. Named here, not in the runtime:
+        // the runtime holds a turn's floor open for whatever names it is given
+        // and has no notion of a row, and a list living there would be this
+        // crate's vocabulary embedded in something more general than it.
+        //
+        // Nothing for a seat owed an answer: the driver refuses its
+        // `complete_episode` with `AwaitingReply`, and compelling a call that
+        // can only be refused is worse than the silence it replaces -- measured
+        // at 472s on a turn that could not end, against 258s before the guard.
+        let records_with: Vec<String> = if self.tools.awaiting_anyone(&seat) {
+            Vec::new()
+        } else {
+            RECORDS.iter().map(|verb| (*verb).to_string()).collect()
+        };
         let conversation = Conversation {
             thread_root: match lane {
                 Lane::Desk => None,
@@ -270,7 +290,12 @@ impl SeatRunner for EmbedRunner {
                     let history = crate::seed::with_persona(history, persona);
                     match tokio::time::timeout(
                         TURN_TIMEOUT,
-                        agent.turn(prompt).session(&session).seed(history).send(),
+                        agent
+                            .turn(prompt)
+                            .session(&session)
+                            .seed(history)
+                            .records_with(records_with)
+                            .send(),
                     )
                     .await
                     {
