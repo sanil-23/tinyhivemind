@@ -352,9 +352,31 @@ impl EpisodeTools {
                 .parent
                 .as_deref()
                 .map_or_else(|| "null".to_owned(), |parent| format!("\"{parent}\""));
+            // Name what was actually sent, not only what was expected. The
+            // previous wording restated the contract and left the caller to
+            // guess which half it had broken -- and a model cannot correct an
+            // error it was never shown. Observed live: a seat alternated
+            // between the right value and the wrong one across ten refusals
+            // without converging, because every refusal read identically.
+            let sent_chat = args
+                .chat
+                .as_deref()
+                .map_or_else(|| "nothing".to_owned(), |chat| format!("\"{chat}\""));
+            let sent_parent = args
+                .parent
+                .as_deref()
+                .map_or_else(|| "null".to_owned(), |parent| format!("\"{parent}\""));
+            // Only say this where it is true: on the desk `parent` is the JSON
+            // literal, in a thread it is that thread's root.
+            let hint = if dispatch.parent.is_none() && args.parent.as_deref() == Some("null") {
+                " `parent` here is the JSON literal null, not the string \"null\"."
+            } else {
+                ""
+            };
             return Err(format!(
                 "every call in this turn carries \"chat\": \"{}\" and \"parent\": {parent}, \
-                 exactly as your brief gave them",
+                 exactly as your brief gave them. This call sent \"chat\": {sent_chat} and \
+                 \"parent\": {sent_parent}.{hint}",
                 dispatch.chat
             ));
         }
