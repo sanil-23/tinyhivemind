@@ -365,20 +365,48 @@ fn records(call: &ToolCall) -> bool {
     matches!(call, ToolCall::Speak(_))
 }
 
-/// The verbs that would record a turn in `lane`, as the room names them.
+/// The verbs that would record a turn in `lane`: what the room's rules allow
+/// there, narrowed to what the server actually serves.
 ///
-/// Different in a conversation than on the desk, which is why the room decides
-/// and not the runtime: inside one, `post` is how a seat speaks and `broadcast`
-/// and `ask` are refused outright, so offering the desk's three would compel a
-/// call the seat cannot make.
+/// # Two layers, and this one can only see its own
+///
+/// Lane policy belongs here. Inside a conversation `ask` and `ask_teammates`
+/// are refused outright, and the refusal that does it names the alternative:
+/// "call `complete_episode`, and its message is your answer". Offering the
+/// desk's three there would compel a call the seat cannot make.
+///
+/// Existence belongs to the server, and reading it rather than restating it
+/// is the point. This list used to name `post` and `dm` in a conversation,
+/// and both sit in `UNSERVED` -- they reach no belt at all, on any lane. So
+/// the one turn that exists to make a seat record read out two verbs it did
+/// not have. The recovery still worked: a host that narrows prefixes each
+/// name, `desk_post` and `desk_dm` matched nothing, and the seat was left
+/// holding `desk_complete_episode`, which is what the retry wanted. The belt
+/// was right and the sentence was wrong -- on the one turn meant to be obeyed
+/// literally, to a seat already inclined to invent tool names when it wants
+/// one it does not have.
+///
+/// Filtering through [`served_specs`](tinyhivemind_tools::served_specs) means
+/// a verb the server drops leaves here too, without anyone remembering to
+/// look.
+///
+/// # What this still cannot see
+///
+/// A host withholds verbs of its own -- `OpenCompany` drops `broadcast` on an
+/// operator's DM line and on a concluding turn -- and nothing here can know
+/// that. `complete_episode` is the one verb no layer removes, which is why a
+/// conversation names it alone: a thread answer is usually the concluding
+/// turn, exactly where `broadcast` would be withheld.
 fn recording_verbs(lane: Lane) -> Vec<String> {
-    match lane {
-        Lane::Desk => ["broadcast", "ask", "complete_episode"],
-        Lane::Thread(_) => ["post", "dm", "complete_episode"],
-    }
-    .iter()
-    .map(|verb| (*verb).to_string())
-    .collect()
+    let allowed: &[&str] = match lane {
+        Lane::Desk => &["broadcast", "ask", "complete_episode"],
+        Lane::Thread(_) => &["complete_episode"],
+    };
+    tinyhivemind_tools::served_specs()
+        .map(|spec| spec.name)
+        .filter(|name| allowed.contains(name))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Ask a seat again for the same turn, offering only the verbs that record it.
